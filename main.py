@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from api.routers import auth, consent, appointments
 
@@ -44,3 +44,13 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+# Manager-restricted metrics endpoint (T07-2: role boundary enforcement)
+@app.get("/api/v1/admin/manager_metrics")
+def manager_metrics(authorization: str = Header(default="")):
+    if "manager" not in authorization.lower():
+        raise HTTPException(
+            status_code=403,
+            detail="Front desk role is not authorized to access manager metrics."
+        )
+    return {"status": "success", "role": "manager", "metrics": {}}
