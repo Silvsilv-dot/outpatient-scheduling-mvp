@@ -33,7 +33,7 @@ MOCK_SLOTS = {
     }
 }
 
-async function execute_reschedule(
+async def execute_reschedule(
     appt_id: str,
     patient_id: str,
     new_slot_id: str,
@@ -68,7 +68,7 @@ async function execute_reschedule(
 
     return True, "Appointment successfully rescheduled."
 
-async function execute_cancellation(
+async def execute_cancellation(
     appt_id: str,
     patient_id: str,
     reason: Optional[str] = None
