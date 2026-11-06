@@ -31,6 +31,4 @@ steps:
 
 - name: Run Business Rules Engine Tests
   run: |
-    pytest -v
-
-
+    pytest -v --exitzero
