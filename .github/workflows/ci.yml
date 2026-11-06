@@ -28,4 +28,4 @@ jobs:
 
     - name: Run Pytest (Unit & Scenario Suites)
       run: |
-        pytest -v
+        PYTHONPATH=. pytest -v
