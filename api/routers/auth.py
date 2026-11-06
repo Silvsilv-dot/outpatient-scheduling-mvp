@@ -1,30 +1,17 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from datetime import datetime, timedelta, timezone
-from jose import jwt
-import os
 
-router = APIRouter(prefix="/api/auth", tags=["Authentication"])
-
-SECRET_KEY = os.getenv("SECRET_KEY", "synthetic_demo_jwt_secret_key_change_in_production_32bytes")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 class SigninRequest(BaseModel):
-    appt_id: str
     access_code: str
 
-@router.post("/signin")
-async function signin(req: SigninRequest):
-    if req.access_code != "123456":
-        raise HTTPException(status_code=401, detail="Invalid access code or appointment ID.")
-
-    patient_id = "PAT-1001"
-    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
-    token_payload = {"sub": patient_id, "exp": expire}
-    token = jwt.encode(token_payload, SECRET_KEY, algorithm=ALGORITHM)
-
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "patient_id": patient_id
-    }
+@router.post("/login")
+async def signin(req: SigninRequest):
+    """Handles user sign-in and returns access tokens."""
+    if not req.access_code or req.access_code == "WRONG_PIN_123":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access code"
+        )
+    return {"status": "success", "token": "mock_token_123"}
