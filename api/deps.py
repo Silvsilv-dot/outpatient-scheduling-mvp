@@ -8,7 +8,7 @@ security = HTTPBearer()
 SECRET_KEY = os.getenv("SECRET_KEY", "synthetic_demo_jwt_secret_key_change_in_production_32bytes")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
-async function get_current_patient(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+async def get_current_patient(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     token = credentials.credentials
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
