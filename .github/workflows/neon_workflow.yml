@@ -1,0 +1,28 @@
+name: Neon Branching on Pull Request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  neon_branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create or Update Neon Preview Branch
+        if: github.event.action != 'closed'
+        uses: neondatabase/create-branch-action@v5
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.number }}
+
+      - name: Delete Neon Preview Branch on PR Close
+        if: github.event.action == 'closed'
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.number }}
