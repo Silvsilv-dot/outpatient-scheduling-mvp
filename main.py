@@ -31,22 +31,7 @@ async def add_security_headers(request: Request, call_next):
     
     return response
 
-# Direct Fallback Route to Guarantee Data Loads Instantly
-@app.get("/api/v1/appointments")
-def get_direct_appointments():
-    return [
-        {
-            "id": 1,
-            "patient_id": 1,
-            "clinician_id": 1,
-            "appointment_time": "2026-11-15T10:00:00",
-            "status": "scheduled",
-            "estimated_wait_time": "15 mins",
-            "notes": "Routine checkup"
-        }
-    ]
-
-# Include Standard Routers
+# Include Standard Routers FIRST so sub-routes match correctly
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(consent.router, prefix="/api/v1/consent", tags=["Consent & Privacy"])
 app.include_router(appointments.router, prefix="/api/v1/appointments", tags=["Appointments"])
