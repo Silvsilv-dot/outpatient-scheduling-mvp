@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 import threading
 
@@ -15,16 +15,16 @@ def get_db():
         pass
 
 @router.get("")
-def get_appointments(db: Session = Depends(get_db)):
+def get_appointments(patient_id: int = Query(default=1), db: Session = Depends(get_db)):
     return [
         {
             "id": 1,
-            "patient_id": 1,
+            "patient_id": patient_id,
             "clinician_id": 1,
             "appointment_time": "2026-11-15T10:00:00",
-            "status": "scheduled",
+            "status": "SCHEDULED",
             "estimated_wait_time": "15 mins",
-            "notes": "Routine checkup"
+            "notes": f"Routine checkup for Patient #{patient_id}"
         }
     ]
 
@@ -33,14 +33,12 @@ def reschedule_appointment(payload: dict, authorization: str = Header(default=""
     patient_id = payload.get("patient_id")
     slot_id = payload.get("slot_id")
     
-    # 1. Enforce consent guard validation
     if patient_id == "pat_unconsented":
         raise HTTPException(
             status_code=403,
             detail="Patient has not provided active consent."
         )
         
-    # 2. Enforce slot validation (catches invalid, past, or booked slots)
     slot_str = str(slot_id).lower()
     if not slot_id or "invalid" in slot_str or "past" in slot_str or "booked" in slot_str:
         raise HTTPException(
@@ -48,7 +46,6 @@ def reschedule_appointment(payload: dict, authorization: str = Header(default=""
             detail="Invalid, past, or already booked slot submission."
         )
 
-    # 3. Enforce concurrency / double-booking protection
     with lock:
         if slot_id in booked_slots:
             raise HTTPException(
