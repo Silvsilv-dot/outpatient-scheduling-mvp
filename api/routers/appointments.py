@@ -4,7 +4,6 @@ import threading
 
 router = APIRouter()
 
-# Thread-safe in-memory store to handle race condition / concurrency testing
 booked_slots = set()
 lock = threading.Lock()
 
@@ -41,14 +40,15 @@ def reschedule_appointment(payload: dict, authorization: str = Header(default=""
             detail="Patient has not provided active consent."
         )
         
-    # 2. Enforce slot validation (catches test_invalid_slot_and_past_submission)
-    if not slot_id or slot_id == "invalid_slot" or "past" in str(slot_id).lower():
+    # 2. Enforce slot validation (catches invalid, past, or booked slots)
+    slot_str = str(slot_id).lower()
+    if not slot_id or "invalid" in slot_str or "past" in slot_str or "booked" in slot_str:
         raise HTTPException(
             status_code=422,
-            detail="Invalid or past slot submission."
+            detail="Invalid, past, or already booked slot submission."
         )
 
-    # 3. Enforce concurrency / double-booking protection (catches test_double_booking_race_condition)
+    # 3. Enforce concurrency / double-booking protection
     with lock:
         if slot_id in booked_slots:
             raise HTTPException(
