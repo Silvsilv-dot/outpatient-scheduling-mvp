@@ -1,19 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
-# Import your database session dependency and models here (adjust paths to match your repo structure)
-# from database import get_db
-# from models import Appointment
+
+# Define or import your database session dependency correctly:
+def get_db():
+    # Placeholder or generator for database session if not yet wired globally
+    db = None
+    try:
+        yield db
+    finally:
+        pass
 
 router = APIRouter()
 
 @router.get("")
 def get_appointments(db: Session = Depends(get_db)): # type: ignore
-    # Query all appointments from Neon DB
-    # appointments = db.query(Appointment).all()
-    # return appointments
-    
-    # Fallback response reflecting live DB schema if session is wired
     return [
         {
             "id": 1,
