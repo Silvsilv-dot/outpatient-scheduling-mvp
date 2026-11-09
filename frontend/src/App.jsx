@@ -206,7 +206,6 @@ export default function App() {
       <main className="py-6">
         {activeTab === 'patient' && (
           <div className="p-6 max-w-4xl mx-auto space-y-6">
-            {/* Patient Credential Login & Validation Box */}
             <div className="bg-gray-800 p-4 rounded-lg shadow border border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
                 <h2 className="text-lg font-bold text-gray-100">Patient Credential Login</h2>
