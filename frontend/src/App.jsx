@@ -8,7 +8,7 @@ function StaffDashboard() {
   useEffect(() => {
     async function fetchAllAppointments() {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/appointments`);
+        const res = await fetch(`${API_BASE_URL}/api/v1/appointments`);
         if (res.ok) {
           const data = await res.json();
           setAppointments(data);
@@ -67,7 +67,7 @@ function ClinicianView() {
   useEffect(() => {
     async function fetchSchedule() {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/appointments`);
+        const res = await fetch(`${API_BASE_URL}/api/v1/appointments`);
         if (res.ok) {
           const data = await res.json();
           setSchedule(data);
@@ -133,7 +133,7 @@ export default function App() {
     async function fetchAppointments() {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/api/appointments`);
+        const res = await fetch(`${API_BASE_URL}/api/v1/appointments`);
         if (res.ok) {
           const data = await res.json();
           const filtered = data.filter(app => String(app.patient_id) === String(currentPatientId));
