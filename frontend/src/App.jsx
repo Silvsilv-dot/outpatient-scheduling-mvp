@@ -263,7 +263,6 @@ export default function App() {
                             onClick={() => handleReschedule(app.appointment_time, app.id)}
                             disabled={isWithin24Hours}
                             aria-disabled={isWithin24Hours}
-                            data-reschedule-disabled={isWithin24Hours ? "true" : "false"}
                             className={`px-4 py-2 rounded text-sm font-medium transition ${
                               isWithin24Hours 
                                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
