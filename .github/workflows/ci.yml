@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install Dependencies & SQLAlchemy
         run: |
           python -m pip install --upgrade pip
           pip install fastapi uvicorn pydantic sqlalchemy psycopg[binary] python-jose[cryptography] passlib[bcrypt] python-dotenv pytest httpx
