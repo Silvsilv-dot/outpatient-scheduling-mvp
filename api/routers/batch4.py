@@ -4,6 +4,9 @@ Read-only Batch 4 roster for the synthetic-data preview.
 Uses the existing Neon database structure.
 Does not modify appointments or return patient names, notes,
 access-code hashes, or user email addresses.
+
+Database failures report only the exception category and SQLSTATE.
+Raw database error messages and connection strings are not returned.
 """
 
 import logging
@@ -51,42 +54,3 @@ def list_preview_appointments(
                     a.appointment_time,
                     COALESCE(a.status, 'scheduled') AS status
                 FROM public.appointments AS a
-                LEFT JOIN public.clinicians AS c
-                    ON c.id = a.clinician_id
-                ORDER BY a.appointment_time ASC, a.id ASC
-                LIMIT %s OFFSET %s
-                """,
-                (limit, offset),
-            ).fetchall()
-
-    except RuntimeError:
-        raise HTTPException(
-            status_code=503,
-            detail="The preview database connection is not configured.",
-            headers={"Cache-Control": "no-store"},
-        ) from None
-
-    except psycopg.Error:
-        logger.error("Batch 4 roster database query failed.")
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "The preview appointment roster could not be loaded. "
-                "Check the backend database configuration and schema."
-            ),
-            headers={"Cache-Control": "no-store"},
-        ) from None
-
-    return [
-        {
-            "id": row["id"],
-            "patient_id": row["patient_id"],
-            "clinician_id": row["clinician_id"],
-            "clinician_name": (
-                row["clinician_name"] or "Clinician unavailable"
-            ),
-            "appointment_time": row["appointment_time"].isoformat(),
-            "status": str(row["status"]).strip().lower(),
-        }
-        for row in rows
-    ]
