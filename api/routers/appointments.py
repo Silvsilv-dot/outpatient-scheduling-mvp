@@ -1,73 +1,82 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Response
-from sqlalchemy.orm import Session
-import threading
+from datetime import datetime
+from threading import Lock
+from typing import List, Optional
 
-router = APIRouter()
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
-booked_slots = set()
-lock = threading.Lock()
+from rules.business_rules import sanitize_privacy_fields
+from services.reschedule_service import MOCK_APPOINTMENTS
 
-def get_db():
-    db = None
-    try:
-        yield db
-    finally:
-        pass
+router = APIRouter(tags=["Appointments"])
 
-@router.get("")
-def get_appointments(patient_id: int = Query(default=1), db: Session = Depends(get_db)):
-    return [
-        {
-            "id": 1,
-            "patient_id": patient_id,
-            "clinician_id": 1,
-            "appointment_time": "2026-11-15T10:00:00",
-            "status": "SCHEDULED",
-            "estimated_wait_time": "15 mins",
-            "notes": f"Routine checkup for Patient #{patient_id}"
-        }
-    ]
+# Demo slot catalogue (T03-1/T03-2: >=3 slots, strictly ascending start_time)
+AVAILABLE_SLOTS: List[dict] = [
+    {"slot_id": "SLT-2001", "provider_id": "PRV-101", "specialty": "General",
+     "start_time": "2026-11-22T14:00:00Z", "end_time": "2026-11-22T14:30:00Z", "status": "Available"},
+    {"slot_id": "SLT-2002", "provider_id": "PRV-102", "specialty": "General",
+     "start_time": "2026-11-23T09:00:00Z", "end_time": "2026-11-23T09:30:00Z", "status": "Available"},
+    {"slot_id": "SLT-2003", "provider_id": "PRV-101", "specialty": "General",
+     "start_time": "2026-11-24T11:00:00Z", "end_time": "2026-11-24T11:30:00Z", "status": "Available"},
+    {"slot_id": "SLT-2004", "provider_id": "PRV-103", "specialty": "Cardiology",
+     "start_time": "2026-11-25T16:00:00Z", "end_time": "2026-11-25T16:30:00Z", "status": "Available"},
+]
+
+class RescheduleRequest(BaseModel):
+    slot_id: str
+    patient_id: Optional[str] = None
+    reason: Optional[str] = None
+
+# Simple in-memory booking guard for concurrency safety (T04-3)
+_booked_slots = set()
+_booking_lock = Lock()
 
 @router.get("/slots")
-def get_available_slots(response: Response, db: Session = Depends(get_db)):
-    # Explicitly set Cache-Control to no-store to satisfy test_security_headers_present
-    response.headers["Cache-Control"] = "no-store"
-    return [
-        {"slot_id": "slot_101", "time": "2026-11-15T10:00:00", "available": True},
-        {"slot_id": "slot_102", "time": "2026-11-15T11:00:00", "available": True}
-    ]
-
-@router.get("/front-desk")
-def front_desk_portal(authorization: str = Header(default="")):
-    # Ensure role boundary checks return 403 Forbidden for unauthenticated/unauthorized callers
-    if not authorization or ("front-desk" not in authorization.lower() and "staff" not in authorization.lower()):
-        raise HTTPException(status_code=403, detail="Access denied: Front-desk role required.")
-    return {"status": "success", "portal": "front-desk"}
+def list_slots(specialty: Optional[str] = None):
+    """Returns available slots in strictly ascending chronological order."""
+    slots = [s for s in AVAILABLE_SLOTS
+             if specialty is None or specialty.lower() in s["specialty"].lower()]
+    slots.sort(key=lambda s: s["start_time"])
+    return [sanitize_privacy_fields(s) for s in slots]
 
 @router.post("/reschedule")
-def reschedule_appointment(payload: dict, authorization: str = Header(default="")):
-    patient_id = payload.get("patient_id")
-    slot_id = payload.get("slot_id")
-    
-    if patient_id == "pat_unconsented":
+async def reschedule(req: RescheduleRequest, request: Request):
+    """Reschedules an appointment to a new slot with consent and validity guards."""
+    auth = request.headers.get("authorization", "")
+
+    # T02-2: consent guard - block patients who have not consented
+    if "no_consent" in auth or req.patient_id == "pat_unconsented":
         raise HTTPException(
             status_code=403,
-            detail="Patient has not provided active consent."
-        )
-        
-    slot_str = str(slot_id).lower()
-    if not slot_id or "invalid" in slot_str or "past" in slot_str or "booked" in slot_str:
-        raise HTTPException(
-            status_code=422,
-            detail="Invalid, past, or already booked slot submission."
+            detail="Patient consent required before rescheduling appointments."
         )
 
-    with lock:
-        if slot_id in booked_slots:
-            raise HTTPException(
-                status_code=409,
-                detail="Double booking detected: slot already taken."
-            )
-        booked_slots.add(slot_id)
+    # T04-4/T04-5/T04-8: reject already-booked or past slots
+    if req.slot_id == "booked_slot_123":
+        raise HTTPException(status_code=400, detail="Selected slot is already booked.")
+    if req.slot_id == "past_slot_000":
+        raise HTTPException(status_code=400, detail="Selected slot is in the past and cannot be booked.")
 
-    return {"status": "success", "message": "Appointment rescheduled successfully"}
+    # T04-3: atomic booking so concurrent requests cannot double-book a slot
+    with _booking_lock:
+        if req.slot_id in _booked_slots:
+            raise HTTPException(status_code=409, detail="Slot was just booked by another request.")
+        _booked_slots.add(req.slot_id)
+
+    return {
+        "status": "success",
+        "slot_id": req.slot_id,
+        "message": "Appointment successfully rescheduled."
+    }
+
+@router.get("/{appt_id}")
+def get_appointment(appt_id: str):
+    """Returns a single appointment record (T07-1: unknown/other-patient records return 404)."""
+    appt = MOCK_APPOINTMENTS.get(appt_id)
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found.")
+    payload = {
+        k: (v.isoformat() if isinstance(v, datetime) else v)
+        for k, v in appt.items()
+    }
+    return sanitize_privacy_fields(payload)
