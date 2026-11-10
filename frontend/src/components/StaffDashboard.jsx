@@ -1,116 +1,385 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+const ROSTER_URL = '/api/v1/batch4/appointments';
+
+function formatStoredTime(value) {
+  if (!value) return 'Time unavailable';
+
+  // The database stores timestamps without a timezone.
+  // Display the stored value without inventing a timezone conversion.
+  return String(value).replace('T', ' ');
+}
+
+function statusClass(status) {
+  switch (status) {
+    case 'confirmed':
+      return 'bg-green-100 text-green-800';
+    case 'cancelled':
+      return 'bg-red-100 text-red-800';
+    case 'rescheduled':
+      return 'bg-blue-100 text-blue-800';
+    default:
+      return 'bg-gray-100 text-gray-800';
+  }
+}
 
 export default function StaffDashboard() {
+  const [keyInput, setKeyInput] = useState('');
+  const [accessKey, setAccessKey] = useState('');
   const [appointments, setAppointments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [toast, setToast] = useState(null);
-  const [pendingIds, setPendingIds] = useState(new Set());
-  const timer = useRef(null);
-  const request = useRef(null);
-  const writes = useRef(new Set());
-  const mounted = useRef(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [page, setPage] = useState(0);
+  const [reload, setReload] = useState(0);
 
-  const showToast = useCallback((message, type = 'success') => {
-    if (!mounted.current) return;
-    clearTimeout(timer.current);
-    setToast({ message, type });
-    timer.current = setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  const fetchAppointments = useCallback(async () => {
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/appointments`, { signal: controller.signal });
-      if (!res.ok) throw new Error('Failed to fetch appointment roster.');
-      const data = await res.json();
-      if (!Array.isArray(data)) throw new Error('Unexpected appointment response: expected an array.');
-      if (!controller.signal.aborted) setAppointments(data);
-    } catch (err) {
-      if (!controller.signal.aborted) showToast(err.message, 'error');
-    } finally {
-      if (!controller.signal.aborted && mounted.current) setLoading(false);
-    }
-  }, [showToast]);
+  const requestVersion = useRef(0);
+  const pageSize = 100;
 
   useEffect(() => {
-    mounted.current = true;
-    fetchAppointments();
-    return () => {
-      mounted.current = false;
-      request.current?.abort();
-      clearTimeout(timer.current);
-    };
-  }, [fetchAppointments]);
+    if (!accessKey) return undefined;
 
-  async function handleStatusUpdate(id, status) {
-    if (writes.current.has(id)) return;
-    if (status === 'cancelled' && !window.confirm('Cancel this appointment?')) return;
-    writes.current.add(id);
-    setPendingIds(new Set(writes.current));
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/appointments/${encodeURIComponent(id)}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) throw new Error('Could not update appointment status.');
-      if (!mounted.current) return;
-      setAppointments(previous => previous.map(app => app.id === id ? { ...app, status } : app));
-      showToast(`Appointment status updated to ${status}.`);
-      await fetchAppointments();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      writes.current.delete(id);
-      if (mounted.current) setPendingIds(new Set(writes.current));
+    const controller = new AbortController();
+    const version = ++requestVersion.current;
+
+    async function loadRoster() {
+      setLoading(true);
+      setError('');
+      setLoaded(false);
+      setAppointments([]);
+
+      try {
+        const response = await fetch(
+          `${ROSTER_URL}?limit=${pageSize}&offset=${page * pageSize}`,
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessKey}`,
+            },
+            cache: 'no-store',
+            signal: controller.signal,
+          }
+        );
+
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        const body = isJson ? await response.json() : null;
+
+        if (!response.ok) {
+          const detail =
+            typeof body?.detail === 'string' ? body.detail : '';
+
+          throw new Error(
+            detail ||
+              `The roster request failed with HTTP ${response.status}.`
+          );
+        }
+
+        if (!isJson || !Array.isArray(body)) {
+          throw new Error(
+            'The server did not return an appointment list. Check API routing.'
+          );
+        }
+
+        if (
+          controller.signal.aborted ||
+          version !== requestVersion.current
+        ) {
+          return;
+        }
+
+        setAppointments(body);
+        setLoaded(true);
+      } catch (err) {
+        if (
+          controller.signal.aborted ||
+          version !== requestVersion.current
+        ) {
+          return;
+        }
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'The appointment roster could not be loaded.'
+        );
+      } finally {
+        if (
+          !controller.signal.aborted &&
+          version === requestVersion.current
+        ) {
+          setLoading(false);
+        }
+      }
     }
+
+    loadRoster();
+
+    return () => controller.abort();
+  }, [accessKey, page, reload]);
+
+  function unlockPreview(event) {
+    event.preventDefault();
+
+    const value = keyInput.trim();
+
+    if (!value) {
+      setError('Enter your Batch 4 preview access key.');
+      return;
+    }
+
+    setError('');
+    setPage(0);
+    setAccessKey(value);
+    setKeyInput('');
+  }
+
+  function lockPreview() {
+    requestVersion.current += 1;
+    setAccessKey('');
+    setKeyInput('');
+    setAppointments([]);
+    setError('');
+    setLoaded(false);
+    setLoading(false);
+    setSearchTerm('');
+    setFilterStatus('all');
+    setPage(0);
   }
 
   const query = searchTerm.trim().toLowerCase();
-  const filtered = appointments.filter(app =>
-    (filterStatus === 'all' || app.status === filterStatus) &&
-    (!query || [app.patient_name, app.clinician_name].some(name => String(name ?? '').toLowerCase().includes(query)))
-  );
+
+  const filteredAppointments = appointments.filter((appointment) => {
+    const status = String(appointment.status || '').toLowerCase();
+
+    const matchesStatus =
+      filterStatus === 'all' || status === filterStatus;
+
+    const matchesSearch = [
+      appointment.id,
+      appointment.patient_id,
+      appointment.clinician_id,
+      appointment.clinician_name,
+    ].some((value) =>
+      String(value ?? '').toLowerCase().includes(query)
+    );
+
+    return matchesStatus && matchesSearch;
+  });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {toast && <div role={toast.type === 'error' ? 'alert' : 'status'} className={`p-4 rounded-md text-white ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>{toast.message}</div>}
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <div><h1 className="text-2xl font-bold">Front-Desk Staff Dashboard</h1><p className="text-sm text-gray-500">Review bookings, confirm appointments, and process cancellations.</p></div>
-        <button type="button" onClick={fetchAppointments} disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">Refresh Roster</button>
-      </div>
-      <div className="flex flex-col sm:flex-row gap-4 bg-gray-50 p-4 rounded-lg border">
-        <label className="flex-grow"><span className="sr-only">Search by patient or clinician</span><input type="search" placeholder="Search by patient or clinician..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full p-2 border rounded-md" /></label>
-        <label><span className="sr-only">Filter by appointment status</span><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-2 border rounded-md"><option value="all">All Statuses</option><option value="scheduled">Scheduled</option><option value="confirmed">Confirmed</option><option value="cancelled">Cancelled</option></select></label>
-      </div>
-      {loading ? <p role="status" className="text-center py-12">Loading appointment data...</p> : (
-        <div className="overflow-x-auto bg-white rounded-lg shadow border">
-          <table className="w-full text-left border-collapse">
-            <caption className="sr-only">Patient appointment roster</caption>
-            <thead><tr className="bg-gray-100 border-b text-xs uppercase">{['ID', 'Patient', 'Clinician', 'Date & Time', 'Status', 'Actions'].map(title => <th key={title} scope="col" className="p-4">{title}</th>)}</tr></thead>
-            <tbody className="divide-y text-sm">
-              {filtered.length === 0 ? <tr><td colSpan={6} className="p-4 text-center">No matching appointments found.</td></tr> : filtered.map(app => (
-                <tr key={app.id} className="hover:bg-gray-50">
-                  <td className="p-4 font-mono text-xs">{app.id}</td><td className="p-4">{app.patient_name || 'Not provided'}</td><td className="p-4">{app.clinician_name || 'Not assigned'}</td>
-                  <td className="p-4">{app.appointment_time && !Number.isNaN(new Date(app.appointment_time).getTime()) ? new Date(app.appointment_time).toLocaleString() : 'Time unavailable'}</td>
-                  <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs ${app.status === 'confirmed' ? 'bg-green-100 text-green-800' : app.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{app.status}</span></td>
-                  <td className="p-4 space-x-2 whitespace-nowrap">
-                    <button type="button" onClick={() => handleStatusUpdate(app.id, 'confirmed')} disabled={pendingIds.has(app.id) || app.status !== 'scheduled'} className="px-2 py-1 bg-green-600 text-white rounded disabled:opacity-50" aria-label={`Confirm appointment ${app.id}`}>Confirm</button>
-                    <button type="button" onClick={() => handleStatusUpdate(app.id, 'cancelled')} disabled={pendingIds.has(app.id) || !['scheduled', 'confirmed'].includes(app.status)} className="px-2 py-1 bg-red-600 text-white rounded disabled:opacity-50" aria-label={`Cancel appointment ${app.id}`}>Cancel</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <section className="p-6 max-w-7xl mx-auto space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-gray-900">
+          Front-Desk Appointment Roster
+        </h1>
+        <p className="mt-2 text-sm text-gray-600">
+          Restricted, read-only Batch 4 preview. Use synthetic test data only.
+        </p>
+      </header>
+
+      {error && (
+        <div
+          role="alert"
+          className="p-4 border border-red-300 bg-red-50 text-red-800 rounded-md"
+        >
+          {error}
         </div>
       )}
-    </div>
+
+      {!accessKey ? (
+        <form
+          onSubmit={unlockPreview}
+          className="max-w-xl bg-white border rounded-lg p-6 space-y-4"
+        >
+          <div>
+            <label
+              htmlFor="batch4-preview-key"
+              className="block text-sm font-medium text-gray-900"
+            >
+              Batch 4 preview access key
+            </label>
+            <input
+              id="batch4-preview-key"
+              type="password"
+              value={keyInput}
+              onChange={(event) => setKeyInput(event.target.value)}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              className="mt-2 w-full border rounded-md p-2"
+            />
+          </div>
+
+          <p className="text-sm text-gray-600">
+            Enter the key you saved as BATCH4_PREVIEW_ACCESS_KEY in Vercel.
+            Do not enter your Neon API key or database connection string.
+          </p>
+
+          <button
+            type="submit"
+            className="px-4 py-2 rounded-md bg-blue-600 text-white"
+          >
+            Load appointment roster
+          </button>
+        </form>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-3 items-center">
+            <button
+              type="button"
+              onClick={() => setReload((value) => value + 1)}
+              disabled={loading}
+              className="px-4 py-2 rounded-md bg-blue-600 text-white disabled:opacity-50"
+            >
+              Refresh roster
+            </button>
+
+            <button
+              type="button"
+              onClick={lockPreview}
+              className="px-4 py-2 rounded-md border bg-white"
+            >
+              Lock preview / change key
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 bg-white border rounded-lg p-4">
+            <label className="flex-1">
+              <span className="block text-sm font-medium mb-2">
+                Search this page
+              </span>
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Appointment ID, patient ID, or clinician"
+                className="w-full border rounded-md p-2"
+              />
+            </label>
+
+            <label>
+              <span className="block text-sm font-medium mb-2">
+                Status on this page
+              </span>
+              <select
+                value={filterStatus}
+                onChange={(event) => setFilterStatus(event.target.value)}
+                className="border rounded-md p-2"
+              >
+                <option value="all">All statuses</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="rescheduled">Rescheduled</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="completed">Completed</option>
+                <option value="no-show">No-show</option>
+              </select>
+            </label>
+          </div>
+
+          {loading && (
+            <p role="status" className="py-6">
+              Loading appointment roster...
+            </p>
+          )}
+
+          {!loading && loaded && (
+            <>
+              <p className="text-sm text-gray-600">
+                Page {page + 1}. Loaded {appointments.length} records;
+                showing {filteredAppointments.length} after filtering.
+                Times are displayed as stored; the clinic timezone has
+                not yet been configured.
+              </p>
+
+              <div className="overflow-x-auto bg-white border rounded-lg">
+                <table className="w-full text-left text-sm">
+                  <caption className="sr-only">
+                    Read-only preview appointment roster
+                  </caption>
+
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th scope="col" className="p-4">Appointment ID</th>
+                      <th scope="col" className="p-4">Patient ID</th>
+                      <th scope="col" className="p-4">Clinician</th>
+                      <th scope="col" className="p-4">
+                        Appointment time (as stored)
+                      </th>
+                      <th scope="col" className="p-4">Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y">
+                    {filteredAppointments.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center">
+                          {appointments.length === 0
+                            ? 'No appointment records returned for this page.'
+                            : 'No appointments match these filters on this page.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAppointments.map((appointment) => (
+                        <tr key={appointment.id}>
+                          <td className="p-4">{appointment.id}</td>
+                          <td className="p-4">{appointment.patient_id}</td>
+                          <td className="p-4">
+                            {appointment.clinician_name}
+                          </td>
+                          <td className="p-4">
+                            {formatStoredTime(
+                              appointment.appointment_time
+                            )}
+                          </td>
+                          <td className="p-4">
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs ${statusClass(
+                                appointment.status
+                              )}`}
+                            >
+                              {appointment.status || 'Unknown'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-wrap gap-3 items-center">
+                <button
+                  type="button"
+                  disabled={page === 0}
+                  onClick={() => setPage((value) => Math.max(0, value - 1))}
+                  className="px-4 py-2 border rounded-md bg-white disabled:opacity-50"
+                >
+                  Previous page
+                </button>
+
+                <button
+                  type="button"
+                  disabled={appointments.length < pageSize}
+                  onClick={() => setPage((value) => value + 1)}
+                  className="px-4 py-2 border rounded-md bg-white disabled:opacity-50"
+                >
+                  Next page
+                </button>
+              </div>
+            </>
+          )}
+
+          <p className="text-sm text-gray-600">
+            Confirm, cancel, and reschedule actions are not enabled in
+            this read-only stage.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
