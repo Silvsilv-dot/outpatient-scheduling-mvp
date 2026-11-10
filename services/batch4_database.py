@@ -1,9 +1,6 @@
-"""
-Database connection helper for Batch 4.
-
-Reads DATABASE_URL from the server environment.
-Does not create tables, seed data, or expose API endpoints.
-"""
+# Database connection helper for the Batch 4 preview.
+# Reads DATABASE_URL from the server environment.
+# Does not create tables or seed data.
 
 import os
 from contextlib import contextmanager
@@ -26,6 +23,8 @@ def database_connection() -> Iterator[psycopg.Connection]:
         database_url,
         row_factory=dict_row,
         connect_timeout=10,
-        options="-c statement_timeout=15000",
     ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = '15s'")
+
         yield connection
