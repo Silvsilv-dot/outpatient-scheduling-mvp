@@ -1,53 +1,84 @@
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
-
-export default function ClinicianView({ clinicianId }) {
+export default function ClinicianView({ clinicianId = "default-clinician" }) {
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [reload, setReload] = useState(0);
+  const [error, setError] = useState(null);
+  const [selectedView, setSelectedView] = useState('daily'); // 'daily' or 'weekly'
 
   useEffect(() => {
-    const controller = new AbortController();
-    setSchedule([]);
-    setError('');
-    if (!clinicianId) {
-      setLoading(false);
-      return () => controller.abort();
-    }
-    async function load() {
-      setLoading(true);
+    async function fetchClinicianSchedule() {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/clinicians/${encodeURIComponent(clinicianId)}/schedule`, { signal: controller.signal });
-        if (!res.ok) throw new Error('Could not load clinician schedule.');
-        const data = await res.json();
-        if (!Array.isArray(data)) throw new Error('Unexpected schedule response: expected an array.');
-        if (!controller.signal.aborted) setSchedule([...data].sort((a, b) => new Date(a.appointment_time) - new Date(b.appointment_time)));
+        setLoading(true);
+        const response = await fetch(`/api/v1/batch4/clinician/${clinicianId}/schedule?view=${selectedView}`);
+        if (!response.ok) {
+          throw new Error('Failed to load clinician schedule data');
+        }
+        const data = await response.json();
+        setSchedule(data.appointments || []);
       } catch (err) {
-        if (!controller.signal.aborted) setError(err.message);
+        setError(err.message);
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setLoading(false);
       }
     }
-    load();
-    return () => controller.abort();
-  }, [clinicianId, reload]);
+
+    fetchClinicianSchedule();
+  }, [clinicianId, selectedView]);
+
+  if (loading) {
+    return <div className="p-6 text-center text-gray-500">Loading clinician calendar view...</div>;
+  }
+
+  if (error) {
+    return <div className="p-6 text-center text-red-600">Error loading calendar: {error}</div>;
+  }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="border-b pb-4 flex flex-wrap justify-between gap-4">
-        <div><h1 className="text-2xl font-bold">Clinician Schedule &amp; Agenda</h1><p className="text-sm text-gray-500">Appointments returned by the clinician schedule service.</p></div>
-        <button type="button" onClick={() => setReload(value => value + 1)} disabled={loading || !clinicianId} className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">Refresh Schedule</button>
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-900">Clinician Calendar & Agenda</h2>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => setSelectedView('daily')}
+            className={`px-4 py-2 text-sm font-medium rounded-md ${
+              selectedView === 'daily' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
+            }`}
+          >
+            Daily Calendar
+          </button>
+          <button
+            onClick={() => setSelectedView('weekly')}
+            className={`px-4 py-2 text-sm font-medium rounded-md ${
+              selectedView === 'weekly' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
+            }`}
+          >
+            Weekly Calendar
+          </button>
+        </div>
       </div>
-      {!clinicianId ? <p role="status">No clinician selected. Configure a clinician ID for this demo.</p> : loading ? <p role="status">Loading agenda...</p> : error ? <div role="alert" className="p-4 bg-red-100 text-red-800 rounded">{error}</div> : schedule.length === 0 ? <p className="p-6 bg-gray-50 border rounded-lg">No appointments returned for this clinician.</p> : (
-        <div className="grid gap-4">{schedule.map(item => (
-          <div key={item.id} className="flex flex-col sm:flex-row justify-between gap-3 p-4 bg-white border rounded-lg shadow-sm">
-            <div><div className="text-sm font-semibold text-blue-600">{item.appointment_time && !Number.isNaN(new Date(item.appointment_time).getTime()) ? new Date(item.appointment_time).toLocaleString() : 'Time unavailable'}</div><div className="text-lg font-semibold">{item.patient_name || 'Patient name unavailable'}</div><div className="text-sm text-gray-500">Reason: {item.reason || 'Not provided'}</div></div>
-            <div><span className={`px-3 py-1 rounded-full text-xs ${item.status === 'confirmed' ? 'bg-green-100 text-green-800' : item.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'}`}>{item.status}</span></div>
-          </div>
-        ))}</div>
-      )}
+
+      <div className="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
+        {schedule.length === 0 ? (
+          <div className="p-6 text-center text-gray-500">No appointments found for this {selectedView}.</div>
+        ) : (
+          <ul className="divide-y divide-gray-200">
+            {schedule.map((item) => (
+              <li key={item.id} className="p-4 hover:bg-gray-50 flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{item.patient_name}</p>
+                  <p className="text-xs text-gray-500">Time: {item.appointment_time}</p>
+                </div>
+                <span className={`px-3 py-1 text-xs rounded-full font-medium ${
+                  item.status === 'Confirmed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {item.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
