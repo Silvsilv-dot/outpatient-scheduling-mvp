@@ -10,10 +10,19 @@ export default function ClinicianView({ clinicianId = "default-clinician" }) {
     async function fetchClinicianSchedule() {
       try {
         setLoading(true);
-        const response = await fetch(`/api/v1/batch4/clinician/${clinicianId}/schedule?view=${selectedView}`);
+        const response = await fetch(`/api/v1/batch4/clinician/${clinicianId}/schedule?view=${selectedView}`, {
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_BATCH4_ACCESS_KEY}`
+          }
+        });
+        
         if (!response.ok) {
+          if (response.status === 401 || response.status === 503) {
+            throw new Error('Access denied: Invalid or missing preview configuration.');
+          }
           throw new Error('Failed to load clinician schedule data');
         }
+        
         const data = await response.json();
         setSchedule(data.appointments || []);
       } catch (err) {
