@@ -47,12 +47,12 @@ def get_clinician_schedule(clinician_id: str, view: str = Query("daily")):
                     SELECT
                         a.id::text,
                         COALESCE(u.name, 'Unknown Patient') AS patient_name,
-                        TO_CHAR(a.start_time, 'YYYY-MM-DD HH12:MI AM') AS appointment_time,
+                        TO_CHAR(a.appointment_time, 'YYYY-MM-DD HH12:MI AM') AS appointment_time,
                         COALESCE(a.status, 'Pending') AS status
                     FROM appointments a
                     LEFT JOIN users u ON a.patient_id = u.id
                     WHERE a.clinician_id::text = %s
-                    ORDER BY a.start_time ASC
+                    ORDER BY a.appointment_time ASC
                     """,
                     (str(real_id),),
                 )
@@ -78,7 +78,7 @@ def get_staff_appointments(status: Optional[str] = Query("All", description="Fil
                         a.id::text,
                         COALESCE(u.name, 'Unknown Patient') AS patient_name,
                         COALESCE(c.name, 'Unassigned') AS clinician_name,
-                        TO_CHAR(a.start_time, 'YYYY-MM-DD HH12:MI AM') AS appointment_time,
+                        TO_CHAR(a.appointment_time, 'YYYY-MM-DD HH12:MI AM') AS appointment_time,
                         COALESCE(a.status, 'Pending') AS status
                     FROM appointments a
                     LEFT JOIN users u ON a.patient_id = u.id
@@ -90,7 +90,7 @@ def get_staff_appointments(status: Optional[str] = Query("All", description="Fil
                     query += " WHERE LOWER(a.status) = LOWER(%s)"
                     params.append(status)
 
-                query += " ORDER BY a.start_time ASC"
+                query += " ORDER BY a.appointment_time ASC"
 
                 cur.execute(query, params)
                 records = cur.fetchall()
