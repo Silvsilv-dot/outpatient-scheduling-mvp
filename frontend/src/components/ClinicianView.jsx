@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-export default function ClinicianView({ clinicianId = "default-clinician" }) {
+// Updated default parameter from "default-clinician" (string) to 1 (integer)
+export default function ClinicianView({ clinicianId = 1 }) {
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
