@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-// Updated default parameter from "default-clinician" (string) to 1 (integer)
 export default function ClinicianView({ clinicianId = 1 }) {
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -11,7 +10,11 @@ export default function ClinicianView({ clinicianId = 1 }) {
     async function fetchClinicianSchedule() {
       try {
         setLoading(true);
-        const response = await fetch(`/api/v1/batch4/clinician/${clinicianId}/schedule?view=${selectedView}`, {
+        
+        // Safety check: Guarantee an integer is used in the URL to prevent 404s
+        const safeId = clinicianId || 1;
+        
+        const response = await fetch(`/api/v1/batch4/clinician/${safeId}/schedule?view=${selectedView}`, {
           headers: {
             'Authorization': `Bearer ${import.meta.env.VITE_BATCH4_ACCESS_KEY}`
           }
@@ -21,7 +24,7 @@ export default function ClinicianView({ clinicianId = 1 }) {
           if (response.status === 401 || response.status === 503) {
             throw new Error('Access denied: Invalid or missing preview configuration.');
           }
-          throw new Error('Failed to load clinician schedule data');
+          throw new Error(`Failed to load clinician schedule data (Status: ${response.status})`);
         }
         
         const data = await response.json();
